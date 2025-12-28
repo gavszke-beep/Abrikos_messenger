@@ -1,130 +1,34 @@
-import express from 'express';
-import http from 'http';
-import { Server } from 'socket.io';
-import cors from 'cors';
+# Abrikos Server (Express + Socket.IO)
 
-const app = express();
+Базовый чат-сервер на Node.js с Express и Socket.IO. Поддерживает онлайн-юзеров, поиск и приватные сообщения.
 
-const server = http.createServer(app);
+## Что делает
+- хранит онлайн-пользователей в памяти (Map)
+- уведомляет клиентов об онлайн-юзерах
+- поиск пользователей по нику
+- отправка приватных сообщений между пользователями
+- статусный эндпоинт /status
 
-app.use(cors({
-    origin: '*',
-    methods: ['GET', 'POST']
-}));
+## Установка
+1. Установите зависимости: `npm install`
+2. Запустите: `PORT=3001 node index.js` (или через скрипт npm)
 
-const io = new Server(server, {
-    cors: {
-        origin: '*',
-        methods: ["GET", "POST"]
-    }
-});
+## Конфигурация
+- PORT — порт сервера (по умолчанию 3001)
+- HOST — хост (0.0.0.0 по умолчанию)
+- CORS разрешает доступ с любых источников (по умолчанию)
 
-const onlineUsers = new Map();
+## Как работает клиент
+- Подключение и отправка user_joined: `{ nickname, avatar }`
+- Поиск: `search_users` с строкой поиска → ответ `search_results`
+- Приватное сообщение: `send_private_message` `{ to, text }`
+  - сервер отправляет `new_private_message` получателю и отправителю (с isOwn: true для отправителя)
+- Отключение — удаление из онлайн-пользователей и обновление списка
 
-io.on('connection', (socket) => {
-    console.log('Новое подключение:', socket.id);
+## Эндпоинты
+- GET /status — возвращает статус сервера и число онлайн
+  Пример: `{ status: 'OK', usersOnline: N, message: 'Abrikos Server фурычит!' }`
 
-    socket.on('user_joined', (userData) => {
-        console.log('Ползователь вошел:', userData.nickname);
-
-        onlineUsers.set(socket.id, {
-            id: socket.id,
-            socketId: socket.id, 
-            nickname: userData.nickname,
-            avatar: userData.avatar
-        });
-
-        const usersArray = Array.from(onlineUsers.values());
-
-        io.emit('online_users_update', usersArray);
-
-        console.log('Онлайн пользователей:', usersArray.length);
-        });
-
-        socket.on('search_users', (searchTerm) => {
-            const usersArray = Array.from(onlineUsers.values());
-
-            const filteredUsers = usersArray.filter(user =>
-                user.nickname.toLowercase().includes(searchTerm.toLowercase()) &&
-                user.socketId !== socket.id
-            );
-            socket.emit('search_results', filteredUsers);
-        });
-
-        socket.on('send_private_message', (data) => {
-            const fromUser = onlineUsers.get(socket.id);
-
-            if (!fromUser) {
-                console.log('Отправитель не найден');
-                return;
-            }
-
-            console.log('Сообщение от', fromUser.nickname, 'к', data.to);
-
-            const recipientEntry = Array.from(onlineUsers.entries()).find(
-                ([id, user]) => user.nickname === data.to
-            );
-
-                if (recipientEntry && fromUser) {
-                    const [recipientId, recipientUser] = recipientEntry;
-
-                    const messageData = {
-                        id: Date.now(),
-                        from: fromUser.nickname,
-                        fromAvatar: fromUser.avatar,
-                        to: data.to,
-                        text: data.text,
-                        timestamp: new Date().toLocaleTimeString()
-                    };
-                    console.log('Отправляю сообщение пользователю:', recipientUser.nickname);
-
-                    socket.to(recipientId).emit('new_private_message', messageData);
-
-                    socket.emit('new_private_message', {...messageData, isOwn: true});
-                } else {
-                    console.log('Получатель не найден:', data.to);
-
-                    socket.emit('error_message', {
-                        text: `Пользователь ${data.to} не в сети`
-                    });
-                };
-        });
-
-        socket.on('disconnect', () => {
-            const user = onlineUsers.get(socket.id);
-
-            if(user) {
-                onlineUsers.delete(socket.id);
-
-                const usersArray = Array.from(onlineUsers.values());
-                io.emit('online_users_update', usersArray);
-
-                console.log('Пользователь отключился:', user.nickname);
-            };
-        });
-});
-
-
-app.get('/status', (req, res) => {
-    res.json({
-        status: 'OK',
-        usersOnline: onlineUsers.size,
-        message: 'Abrikos Server фурычит!'
-    });
-});
-
-const PORT = process.env.PORT || 3001;
-const HOST = '0.0.0.0';
-
-server.listen(PORT, HOST, () => {
-    console.log(`\n Abrikos Server запущен!`);
-    console.log(`Локальный доступ: http://localhost:${PORT}`);
-    console.log(`Сетевой доступ: http://ВАШ_IP:${PORT}`);
-    console.log(`Статус сервера: http://localhost:${PORT}/status\n`);
-
-    console.log(`Чтобы подключится с телефона:`);
-    console.log(`1. Узнай свой IP адрес (ipconfig / ifconfig)`);
-    console.log(`2. Замени localhost на твой IP в настройках клиента`);
-    console.log(`3. Убедись, что оба устройства в одной WiFi сети`);
-});
-
+## Примечания
+- Хранение в памяти: данные теряются при перезапуске
+- Для продакшена рассмотрите Redis/базу данных и авторизацию
